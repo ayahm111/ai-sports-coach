@@ -1,13 +1,19 @@
-import { z } from "zod"
+import { z } from "zod";
 
 const envSchema = z.object({
-  ELEVENLABS_API_KEY: z.string().optional(),
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-})
+  ELEVENLABS_API_KEY: z.string().min(1),
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_DEFAULT: z.string().min(1),
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_MOTIVATIONAL: z.string().min(1),
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_ANALYTICAL: z.string().min(1),
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_SUPPORTIVE: z.string().min(1),
+  NEXT_PUBLIC_APP_ENV: z.enum(["development", "production", "test"]).default("development"),
+});
 
 export const env = envSchema.parse({
   ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
-  NODE_ENV: process.env.NODE_ENV,
-})
-
-export const isMockMode = !env.ELEVENLABS_API_KEY
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_DEFAULT: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID_DEFAULT,
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_MOTIVATIONAL: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID_MOTIVATIONAL,
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_ANALYTICAL: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID_ANALYTICAL,
+  NEXT_PUBLIC_ELEVENLABS_VOICE_ID_SUPPORTIVE: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID_SUPPORTIVE,
+  NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+});

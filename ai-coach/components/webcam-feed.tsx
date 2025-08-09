@@ -43,119 +43,53 @@ export default function WebcamFeed({ onPoseDetected, isActive }: WebcamFeedProps
       timestamp: Date.now(),
     };
   }, []);
+  // Draw pose on canvas matching canvas actual size
+const drawPose = useCallback((landmarks: any[]) => {
+  if (!canvasRef.current) return;
+  const ctx = canvasRef.current.getContext("2d");
+  if (!ctx) return;
 
-  const drawPose = useCallback((landmarks: any[]) => {
-    if (!canvasRef.current) return;
-    const ctx = canvasRef.current.getContext("2d");
-    if (!ctx) return;
+  ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  ctx.strokeStyle = "#00FF00";
+  ctx.lineWidth = 2;
+  const connections = [
+    [0, 1], [0, 2], [1, 3], [3, 5], [2, 4], [4, 6],
+    [1, 2], [1, 7], [2, 8], [7, 8], [7, 9], [9, 11], [8, 10], [10, 12]
+  ];
 
-    // Draw pose connections
-    ctx.strokeStyle = "#00FF00";
-    ctx.lineWidth = 2;
-    const connections = [
-      [0, 1], [0, 2], [1, 3], [3, 5], [2, 4], [4, 6],
-      [1, 2], [1, 7], [2, 8], [7, 8], [7, 9], [9, 11], [8, 10], [10, 12]
-    ];
+  connections.forEach(([start, end]) => {
+    const startPoint = landmarks[start];
+    const endPoint = landmarks[end];
+    if (startPoint && endPoint && startPoint.visibility > 0.5 && endPoint.visibility > 0.5) {
+      ctx.beginPath();
+      ctx.moveTo(startPoint.x * ctx.canvas.width, startPoint.y * ctx.canvas.height);
+      ctx.lineTo(endPoint.x * ctx.canvas.width, endPoint.y * ctx.canvas.height);
+      ctx.stroke();
+    }
+  });
 
-    connections.forEach(([start, end]) => {
-      const startPoint = landmarks[start];
-      const endPoint = landmarks[end];
-      if (startPoint && endPoint && startPoint.visibility > 0.5 && endPoint.visibility > 0.5) {
-        ctx.beginPath();
-        ctx.moveTo(startPoint.x * canvasRef.current!.width, startPoint.y * canvasRef.current!.height);
-        ctx.lineTo(endPoint.x * canvasRef.current!.width, endPoint.y * canvasRef.current!.height);
-        ctx.stroke();
-      }
-    });
-
-    // Draw landmarks
-    ctx.fillStyle = "#FF0000";
-    landmarks.forEach((landmark) => {
-      if (landmark.visibility > 0.5) {
-        ctx.beginPath();
-        ctx.arc(
-          landmark.x * canvasRef.current!.width,
-          landmark.y * canvasRef.current!.height,
-          4, 0, 2 * Math.PI
-        );
-        ctx.fill();
-      }
-    });
-  }, []);
-
-  const startCamera = async () => {
-    try {
-      setIsLoading(true);
-      setError("");
-      setUseMockData(false); // Reset mock data when trying to start camera
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: "user",
-        },
-      });
-
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await new Promise((resolve) => {
-          videoRef.current!.onloadedmetadata = resolve;
-        });
-
-        if (canvasRef.current) {
-          canvasRef.current.width = videoRef.current.videoWidth;
-          canvasRef.current.height = videoRef.current.videoHeight;
-        }
-
-        setHasPermission(true);
-        startPoseDetection();
-      }
-    } catch (err: any) {
-      console.error("Camera error:", err);
-      setError(
-        err.name === "NotAllowedError" ? "Camera access denied. Please allow permissions." :
-        err.name === "NotFoundError" ? "No camera found." :
-        `Camera error: ${err.message || "Unknown error"}`
+  ctx.fillStyle = "#FF0000";
+  landmarks.forEach((landmark) => {
+    if (landmark.visibility > 0.5) {
+      ctx.beginPath();
+      ctx.arc(
+        landmark.x * ctx.canvas.width,
+        landmark.y * ctx.canvas.height,
+        4, 0, 2 * Math.PI
       );
-      setUseMockData(true); // Fall back to mock data
-    } finally {
-      setIsLoading(false);
+      ctx.fill();
     }
-  };
+  });
+}, []);
 
-  const stopCamera = useCallback(() => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    setHasPermission(false);
-  }, []);
-
-  const startPoseDetection = useCallback(() => {
+const startPoseDetection = useCallback(() => {
     const detectPose = () => {
       if (useMockData) {
         const mockPose = generateMockPose();
         onPoseDetected(mockPose);
         drawPose(mockPose.landmarks);
       } else if (hasPermission && videoRef.current) {
-        // Here you would normally call your pose detection library
-        // For now we'll just draw the video frame
         if (canvasRef.current && videoRef.current) {
           const ctx = canvasRef.current.getContext('2d');
           if (ctx) {
@@ -177,14 +111,93 @@ export default function WebcamFeed({ onPoseDetected, isActive }: WebcamFeedProps
     animationRef.current = requestAnimationFrame(detectPose);
   }, [useMockData, hasPermission, generateMockPose, onPoseDetected, drawPose]);
 
-  useEffect(() => {
-    if (isActive && hasPermission) {
-      startPoseDetection();
-    } else if (animationRef.current) {
+  
+  // Memoize startCamera to avoid effect warnings
+// Memoize startCamera to avoid effect warnings
+const startCamera = useCallback(async () => {
+  setError("");
+  setIsLoading(true);
+  setUseMockData(false);
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: "user" },
+    });
+
+    streamRef.current = stream;
+
+    if (!videoRef.current) {
+      throw new Error("Video element not available");
+    }
+
+    videoRef.current.srcObject = stream;
+
+    await new Promise<void>((resolve, reject) => {
+      const videoEl = videoRef.current!;
+      const onLoadedMetadata = () => {
+        videoEl.removeEventListener("loadedmetadata", onLoadedMetadata);
+        resolve();
+      };
+      const onError = (e: any) => {
+        videoEl.removeEventListener("error", onError);
+        reject(e);
+      };
+
+      videoEl.addEventListener("loadedmetadata", onLoadedMetadata);
+      videoEl.addEventListener("error", onError);
+    });
+
+    await videoRef.current.play();
+
+    // Sync canvas size with video display size (not just videoWidth/Height)
+    if (canvasRef.current && videoRef.current) {
+      const rect = videoRef.current.getBoundingClientRect();
+      canvasRef.current.width = rect.width;
+      canvasRef.current.height = rect.height;
+    }
+
+    setHasPermission(true);
+    startPoseDetection();
+  } catch (err: any) {
+    console.error("Error starting camera:", err);
+    setError(
+      err.name === "NotAllowedError"
+        ? "Camera access denied. Please allow permissions."
+        : err.name === "NotFoundError"
+        ? "No camera found."
+        : `Camera error: ${err.message || "Unknown error"}`
+    );
+    setUseMockData(true);
+  } finally {
+    setIsLoading(false);
+  }
+}, [startPoseDetection]);
+
+
+  const stopCamera = useCallback(() => {
+    if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
     }
-  }, [isActive, hasPermission, startPoseDetection]);
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setHasPermission(false);
+  }, []);
+
+  
+useEffect(() => {
+  if (isActive && videoRef.current && !hasPermission && !isLoading) {
+    startCamera();
+  }
+}, [isActive, videoRef.current, hasPermission, isLoading, startCamera]);
 
   useEffect(() => {
     return () => {
@@ -234,19 +247,21 @@ export default function WebcamFeed({ onPoseDetected, isActive }: WebcamFeedProps
   }
 
   return (
-    <div className="relative w-full max-w-2xl mx-auto">
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="w-full h-auto rounded-lg"
-        style={{ display: useMockData ? 'none' : 'block' }}
-      />
-      <canvas
-        ref={canvasRef}
-        className={`absolute top-0 left-0 w-full h-full pointer-events-none ${useMockData ? 'bg-gray-200' : ''}`}
-      />
+   <div>
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted
+      style={{ display: useMockData ? "none" : "block" }}
+      className="w-full h-auto rounded-lg"
+    />
+<canvas
+  ref={canvasRef}
+  className={`absolute top-0 left-0 w-full h-full pointer-events-none`}
+  style={{ backgroundColor: 'transparent' }}
+/>
+
       
       <div className="absolute bottom-4 left-0 right-0 flex justify-center">
         <Button 

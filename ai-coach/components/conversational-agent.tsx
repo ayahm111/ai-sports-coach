@@ -129,34 +129,49 @@ export default function ConversationalAgent({
   }
 
   const speakMessage = async (text: string) => {
-    if (!text) return
+  if (!text) return;
 
-    setIsSpeaking(true)
-    try {
-      // In real implementation, this would use ElevenLabs TTS
-      const response = await fetch("/api/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, persona: agentPersona }),
-      })
+  setIsSpeaking(true);
+  try {
+    const response = await fetch("/api/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        text,
+        persona: agentPersona 
+      }),
+    });
 
-      if (response.ok) {
-        const audioBlob = await response.blob()
-        const audioUrl = URL.createObjectURL(audioBlob)
-        const audio = new Audio(audioUrl)
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
 
-        audio.onended = () => {
-          setIsSpeaking(false)
-          URL.revokeObjectURL(audioUrl)
-        }
+    const audioBlob = await response.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
 
-        await audio.play()
-      }
-    } catch (error) {
-      console.error("Speech synthesis error:", error)
-      setIsSpeaking(false)
+    audio.onended = () => {
+      setIsSpeaking(false);
+      URL.revokeObjectURL(audioUrl);
+    };
+
+    audio.onerror = () => {
+      setIsSpeaking(false);
+      URL.revokeObjectURL(audioUrl);
+    };
+
+    await audio.play();
+  } catch (error) {
+    console.error("Speech synthesis error:", error);
+    setIsSpeaking(false);
+    // Fallback to browser speech if ElevenLabs fails
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      window.speechSynthesis.speak(utterance);
+      utterance.onend = () => setIsSpeaking(false);
     }
   }
+};
 
   const startListening = () => {
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {

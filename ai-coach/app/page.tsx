@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useEffect } from "react"
 import { Camera, Mic, MicOff, Play, Square, Activity, Target, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,11 +14,8 @@ import TrainingPlan from "@/components/training-plan"
 import type { Exercise, PoseData, AnalysisResult, WorkoutSession } from "@/lib/types"
 // In your page.tsx
 import dynamic from 'next/dynamic';
+import { useEffect, useState } from "react";
 
-const WebcamFeed = dynamic(
-  () => import('@/components/webcam-feed'),
-  { ssr: false }
-);
 
 const EXERCISES: Exercise[] = [
   { id: "squat", name: "Squat", description: "Lower body strength exercise", targetReps: 12, targetSets: 3 },
@@ -40,6 +36,17 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState("workout")
   const [workoutSession, setWorkoutSession] = useState<WorkoutSession | null>(null)
   const [isAgentActive, setIsAgentActive] = useState(false)
+  const WebcamFeed = dynamic(
+    () => import('@/components/webcam-feed'),
+    { ssr: false }
+  );
+  const [isElevenLabsReady, setIsElevenLabsReady] = useState(false);
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY) {
+      setIsElevenLabsReady(true);
+    }
+  }, []);
 
   // Initialize workout session
   useEffect(() => {
@@ -323,7 +330,7 @@ export default function HomePage() {
 
           <TabsContent value="coach">
             <ConversationalAgent
-              isActive={isAgentActive}
+              isActive={isAgentActive && isElevenLabsReady}
               currentExercise={selectedExercise}
               analysisResult={analysisResult}
               onMessage={handleAgentMessage}

@@ -1,322 +1,156 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { z } from "zod"
-import type { AnalysisResult, PoseData } from "@/lib/types"
+import { type NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
-const AnalyzeRequestSchema = z.object({
+const AnalysisRequestSchema = z.object({
   exercise: z.string().min(1),
   pose: z.object({
     landmarks: z.array(
       z.object({
         x: z.number(),
         y: z.number(),
-        z: z.number(),
-        visibility: z.number(),
-        name: z.string(),
-      }),
+        z: z.number().optional(),
+        visibility: z.number().optional(),
+        name: z.string().optional(),
+      })
     ),
     timestamp: z.number(),
   }),
-  timestamp: z.number(),
-})
+  sessionId: z.string().optional(),
+  voiceEnabled: z.boolean().optional(),
+});
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { exercise, pose, timestamp } = AnalyzeRequestSchema.parse(body)
+    const body = await request.json();
+    const { exercise, pose, voiceEnabled } = AnalysisRequestSchema.parse(body);
 
-    // Analyze the pose based on the exercise type
-    const analysis = analyzePoseForExercise(exercise, pose)
+    // Simple analysis logic - replace with your actual pose analysis algorithm
+    const score = analyzeExercisePose(exercise, pose.landmarks);
+    
+    const feedback = generateFeedback(exercise, score);
+    const suggestions = generateSuggestions(exercise, score);
 
-    const result: AnalysisResult = {
+    return NextResponse.json({
       exercise,
-      score: analysis.score,
-      feedback: analysis.feedback,
-      suggestions: analysis.suggestions,
+      score,
+      feedback,
+      suggestions,
       timestamp: Date.now(),
-    }
+    });
 
-    return NextResponse.json(result)
   } catch (error) {
-    console.error("Analysis error:", error)
-
+    console.error("Analysis error:", error);
+    
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid request data", details: error.issues }, { status: 400 })
+      return NextResponse.json(
+        { error: "Invalid request data", details: error.issues },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({ error: "Analysis failed" }, { status: 500 })
+    return NextResponse.json(
+      { error: "Failed to analyze pose" },
+      { status: 500 }
+    );
   }
 }
 
-function analyzePoseForExercise(exercise: string, pose: PoseData) {
-  const landmarks = pose.landmarks
+// Helper functions for pose analysis
+function analyzeExercisePose(exercise: string, landmarks: any[]): number {
+  // Basic scoring based on visible landmarks
+  const visibleLandmarks = landmarks.filter(l => l.visibility > 0.5);
+  const visibilityScore = (visibleLandmarks.length / landmarks.length) * 100;
 
-  // Get key landmarks
-  const leftShoulder = landmarks.find((l) => l.name === "left_shoulder")
-  const rightShoulder = landmarks.find((l) => l.name === "right_shoulder")
-  const leftElbow = landmarks.find((l) => l.name === "left_elbow")
-  const rightElbow = landmarks.find((l) => l.name === "right_elbow")
-  const leftWrist = landmarks.find((l) => l.name === "left_wrist")
-  const rightWrist = landmarks.find((l) => l.name === "right_wrist")
-  const leftHip = landmarks.find((l) => l.name === "left_hip")
-  const rightHip = landmarks.find((l) => l.name === "right_hip")
-  const leftKnee = landmarks.find((l) => l.name === "left_knee")
-  const rightKnee = landmarks.find((l) => l.name === "right_knee")
-  const leftAnkle = landmarks.find((l) => l.name === "left_ankle")
-  const rightAnkle = landmarks.find((l) => l.name === "right_ankle")
-
-  switch (exercise) {
-    case "squat":
-      return analyzeSquat({
-        leftHip,
-        rightHip,
-        leftKnee,
-        rightKnee,
-        leftAnkle,
-        rightAnkle,
-        leftShoulder,
-        rightShoulder,
-      })
-
-    case "pushup":
-      return analyzePushup({
-        leftShoulder,
-        rightShoulder,
-        leftElbow,
-        rightElbow,
-        leftWrist,
-        rightWrist,
-        leftHip,
-        rightHip,
-      })
-
-    case "plank":
-      return analyzePlank({
-        leftShoulder,
-        rightShoulder,
-        leftHip,
-        rightHip,
-        leftAnkle,
-        rightAnkle,
-      })
-
-    case "lunge":
-      return analyzeLunge({
-        leftHip,
-        rightHip,
-        leftKnee,
-        rightKnee,
-        leftAnkle,
-        rightAnkle,
-        leftShoulder,
-        rightShoulder,
-      })
-
+  // Exercise-specific scoring
+  let exerciseScore = 50; // Base score
+  
+  switch (exercise.toLowerCase()) {
+    case 'squat':
+      exerciseScore = analyzeSquat(landmarks);
+      break;
+    case 'pushup':
+      exerciseScore = analyzePushup(landmarks);
+      break;
+    // Add other exercises...
     default:
-      return {
-        score: 50,
-        feedback: "Exercise analysis not available for this exercise type.",
-        suggestions: ["Please select a supported exercise type."],
-      }
+      exerciseScore = visibilityScore * 0.8; // Default scoring
   }
+
+  return Math.min(100, Math.round(exerciseScore));
 }
 
-function analyzeSquat(landmarks: any) {
-  const { leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle } = landmarks
+function analyzeSquat(landmarks: any[]): number {
+  // Simple squat analysis - check knee alignment
+  const leftKnee = landmarks.find(l => l.name === 'left_knee');
+  const rightKnee = landmarks.find(l => l.name === 'right_knee');
+  const leftAnkle = landmarks.find(l => l.name === 'left_ankle');
+  const rightAnkle = landmarks.find(l => l.name === 'right_ankle');
 
-  if (!leftHip || !rightHip || !leftKnee || !rightKnee) {
-    return {
-      score: 30,
-      feedback: "Unable to detect key landmarks for squat analysis.",
-      suggestions: ["Ensure your full body is visible in the camera frame."],
-    }
-  }
+  if (!leftKnee || !rightKnee || !leftAnkle || !rightAnkle) return 50;
 
-  let score = 100
-  const suggestions: string[] = []
-
-  // Check knee alignment
-  const kneeHipAlignment = Math.abs(leftKnee.x - leftHip.x) + Math.abs(rightKnee.x - rightHip.x)
-  if (kneeHipAlignment > 0.1) {
-    score -= 20
-    suggestions.push("Keep your knees aligned with your hips.")
-  }
-
-  // Check depth
-  const hipKneeDistance = Math.abs(leftHip.y - leftKnee.y)
-  if (hipKneeDistance < 0.1) {
-    score -= 15
-    suggestions.push("Try to squat deeper - aim to get your hips below knee level.")
-  }
-
-  // Check balance
-  const leftRightBalance = Math.abs(leftKnee.y - rightKnee.y)
-  if (leftRightBalance > 0.05) {
-    score -= 10
-    suggestions.push("Maintain equal weight distribution on both legs.")
-  }
-
-  let feedback = ""
-  if (score >= 85) {
-    feedback = "Excellent squat form! Your alignment and depth are spot on."
-  } else if (score >= 70) {
-    feedback = "Good squat form with room for minor improvements."
-  } else if (score >= 50) {
-    feedback = "Your squat form needs some adjustments for better results."
-  } else {
-    feedback = "Focus on the basics - proper alignment and controlled movement."
-  }
-
-  return { score: Math.max(0, score), feedback, suggestions }
+  // Check if knees are tracking over ankles
+  const leftAlignment = Math.abs(leftKnee.x - leftAnkle.x);
+  const rightAlignment = Math.abs(rightKnee.x - rightAnkle.x);
+  
+  // Score based on alignment (lower difference = better)
+  const alignmentScore = 100 - (leftAlignment + rightAlignment) * 100;
+  return Math.max(50, Math.round(alignmentScore));
 }
 
-function analyzePushup(landmarks: any) {
-  const { leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist, leftHip, rightHip } = landmarks
+function analyzePushup(landmarks: any[]): number {
+  // Simple pushup analysis - check body alignment
+  const leftShoulder = landmarks.find(l => l.name === 'left_shoulder');
+  const rightShoulder = landmarks.find(l => l.name === 'right_shoulder');
+  const leftHip = landmarks.find(l => l.name === 'left_hip');
+  const rightHip = landmarks.find(l => l.name === 'right_hip');
 
-  if (!leftShoulder || !rightShoulder || !leftElbow || !rightElbow) {
-    return {
-      score: 30,
-      feedback: "Unable to detect key landmarks for push-up analysis.",
-      suggestions: ["Ensure your upper body is clearly visible in the camera frame."],
-    }
-  }
+  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return 50;
 
-  let score = 100
-  const suggestions: string[] = []
-
-  // Check body alignment (plank position)
-  const shoulderHipAlignment = Math.abs((leftShoulder.y + rightShoulder.y) / 2 - (leftHip.y + rightHip.y) / 2)
-  if (shoulderHipAlignment > 0.15) {
-    score -= 25
-    suggestions.push("Keep your body in a straight line from head to heels.")
-  }
-
-  // Check arm position
-  const elbowShoulderAlignment = Math.abs(leftElbow.x - leftShoulder.x) + Math.abs(rightElbow.x - rightShoulder.x)
-  if (elbowShoulderAlignment > 0.2) {
-    score -= 20
-    suggestions.push("Keep your elbows closer to your body, not flared out wide.")
-  }
-
-  // Check hand position
-  if (leftWrist && rightWrist) {
-    const wristShoulderAlignment = Math.abs(leftWrist.x - leftShoulder.x) + Math.abs(rightWrist.x - rightShoulder.x)
-    if (wristShoulderAlignment > 0.1) {
-      score -= 15
-      suggestions.push("Position your hands directly under your shoulders.")
-    }
-  }
-
-  let feedback = ""
-  if (score >= 85) {
-    feedback = "Perfect push-up form! Your body alignment and arm position are excellent."
-  } else if (score >= 70) {
-    feedback = "Solid push-up technique with minor areas for improvement."
-  } else if (score >= 50) {
-    feedback = "Your push-up form has some issues that need attention."
-  } else {
-    feedback = "Focus on maintaining proper body alignment throughout the movement."
-  }
-
-  return { score: Math.max(0, score), feedback, suggestions }
+  // Check if body is straight (shoulders and hips aligned)
+  const shoulderDiff = Math.abs(leftShoulder.y - rightShoulder.y);
+  const hipDiff = Math.abs(leftHip.y - rightHip.y);
+  
+  // Score based on alignment (lower difference = better)
+  const alignmentScore = 100 - (shoulderDiff + hipDiff) * 500;
+  return Math.max(50, Math.round(alignmentScore));
 }
 
-function analyzePlank(landmarks: any) {
-  const { leftShoulder, rightShoulder, leftHip, rightHip, leftAnkle, rightAnkle } = landmarks
-
-  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
-    return {
-      score: 30,
-      feedback: "Unable to detect key landmarks for plank analysis.",
-      suggestions: ["Ensure your full body is visible in the camera frame."],
-    }
-  }
-
-  let score = 100
-  const suggestions: string[] = []
-
-  // Check body alignment
-  const shoulderY = (leftShoulder.y + rightShoulder.y) / 2
-  const hipY = (leftHip.y + rightHip.y) / 2
-  const bodyAlignment = Math.abs(shoulderY - hipY)
-
-  if (bodyAlignment > 0.1) {
-    score -= 30
-    suggestions.push("Keep your body in a straight line - avoid sagging hips or raising your butt.")
-  }
-
-  // Check shoulder stability
-  const shoulderLevel = Math.abs(leftShoulder.y - rightShoulder.y)
-  if (shoulderLevel > 0.05) {
-    score -= 15
-    suggestions.push("Keep your shoulders level and stable.")
-  }
-
-  // Check hip level
-  const hipLevel = Math.abs(leftHip.y - rightHip.y)
-  if (hipLevel > 0.05) {
-    score -= 10
-    suggestions.push("Maintain level hips throughout the plank.")
-  }
-
-  let feedback = ""
+function generateFeedback(exercise: string, score: number): string {
   if (score >= 85) {
-    feedback = "Outstanding plank form! Your body alignment is perfect."
+    return `Excellent ${exercise} form! Maintain this technique.`;
   } else if (score >= 70) {
-    feedback = "Good plank position with some minor adjustments needed."
+    return `Good ${exercise} form with minor areas for improvement.`;
   } else if (score >= 50) {
-    feedback = "Your plank form needs improvement for maximum effectiveness."
-  } else {
-    feedback = "Focus on creating a straight line from head to heels."
+    return `Your ${exercise} form needs work. Focus on proper technique.`;
   }
-
-  return { score: Math.max(0, score), feedback, suggestions }
+  return `Poor ${exercise} form detected. Please adjust your position.`;
 }
 
-function analyzeLunge(landmarks: any) {
-  const { leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle, leftShoulder, rightShoulder } = landmarks
-
-  if (!leftHip || !rightHip || !leftKnee || !rightKnee) {
-    return {
-      score: 30,
-      feedback: "Unable to detect key landmarks for lunge analysis.",
-      suggestions: ["Ensure your full body is visible in the camera frame."],
+function generateSuggestions(exercise: string, score: number): string[] {
+  const suggestions: string[] = [];
+  
+  if (score < 70) {
+    switch (exercise.toLowerCase()) {
+      case 'squat':
+        suggestions.push("Keep your knees aligned with your toes");
+        suggestions.push("Maintain a straight back throughout the movement");
+        if (score < 50) {
+          suggestions.push("Go deeper into your squat if possible");
+        }
+        break;
+      case 'pushup':
+        suggestions.push("Keep your body in a straight line from head to heels");
+        suggestions.push("Lower your chest all the way to the ground");
+        if (score < 50) {
+          suggestions.push("Engage your core more throughout the movement");
+        }
+        break;
     }
   }
 
-  let score = 100
-  const suggestions: string[] = []
-
-  // Check front knee alignment
-  const frontKneeAnkleAlignment = Math.abs(leftKnee.x - (leftAnkle?.x || leftKnee.x))
-  if (frontKneeAnkleAlignment > 0.05) {
-    score -= 20
-    suggestions.push("Keep your front knee aligned over your ankle.")
+  if (suggestions.length === 0) {
+    suggestions.push("Keep up the good work!");
   }
 
-  // Check lunge depth
-  const lungeDepth = Math.abs(leftKnee.y - rightKnee.y)
-  if (lungeDepth < 0.15) {
-    score -= 15
-    suggestions.push("Lower into a deeper lunge position.")
-  }
-
-  // Check torso position
-  const torsoAlignment = Math.abs((leftHip.y + rightHip.y) / 2 - (leftShoulder?.y || leftHip.y))
-  if (torsoAlignment > 0.2) {
-    score -= 20
-    suggestions.push("Keep your torso upright and avoid leaning forward.")
-  }
-
-  let feedback = ""
-  if (score >= 85) {
-    feedback = "Excellent lunge form! Your alignment and depth are perfect."
-  } else if (score >= 70) {
-    feedback = "Good lunge technique with room for minor improvements."
-  } else if (score >= 50) {
-    feedback = "Your lunge form needs some adjustments for better results."
-  } else {
-    feedback = "Focus on proper knee alignment and maintaining an upright torso."
-  }
-
-  return { score: Math.max(0, score), feedback, suggestions }
+  return suggestions;
 }
