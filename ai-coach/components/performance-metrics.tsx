@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 import { useState, useEffect } from "react"
 import { TrendingUp, Target, Clock, Flame, Heart, Award } from "lucide-react"

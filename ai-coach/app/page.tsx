@@ -1,5 +1,6 @@
-"use client";
+"use client"
 
+import { useState, useEffect } from "react"
 import { Camera, Mic, MicOff, Play, Square, Activity, Target, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,15 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-// import WebcamFeed from "@/components/webcam-feed"
+import WebcamFeed from "@/components/webcam-feed"
 import ConversationalAgent from "@/components/conversational-agent"
 import PerformanceMetrics from "@/components/performance-metrics"
 import TrainingPlan from "@/components/training-plan"
 import type { Exercise, PoseData, AnalysisResult, WorkoutSession } from "@/lib/types"
-// In your page.tsx
-import dynamic from 'next/dynamic';
-import { useEffect, useState } from "react";
-
 
 const EXERCISES: Exercise[] = [
   { id: "squat", name: "Squat", description: "Lower body strength exercise", targetReps: 12, targetSets: 3 },
@@ -36,17 +33,7 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState("workout")
   const [workoutSession, setWorkoutSession] = useState<WorkoutSession | null>(null)
   const [isAgentActive, setIsAgentActive] = useState(false)
-  const WebcamFeed = dynamic(
-    () => import('@/components/webcam-feed'),
-    { ssr: false }
-  );
-  const [isElevenLabsReady, setIsElevenLabsReady] = useState(false);
-
-  useEffect(() => {
-    if (process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY) {
-      setIsElevenLabsReady(true);
-    }
-  }, []);
+  const [recentAnalyses, setRecentAnalyses] = useState<AnalysisResult[]>([])
 
   // Initialize workout session
   useEffect(() => {
@@ -70,6 +57,7 @@ export default function HomePage() {
     setIsRecording(true)
     setAnalysisResult(null)
     setIsAgentActive(true)
+    setRecentAnalyses([]) // Clear previous analyses
   }
 
   const handleStopRecording = () => {
@@ -80,7 +68,11 @@ export default function HomePage() {
   const handlePoseDetected = (pose: PoseData) => {
     setCurrentPose(pose)
     if (isRecording && selectedExercise) {
-      analyzePose(pose)
+      // Only analyze every 10th pose to avoid overwhelming the system
+      if (pose.timestamp % 1000 < 100) {
+        // Roughly every second
+        analyzePose(pose)
+      }
     }
   }
 
@@ -109,7 +101,13 @@ export default function HomePage() {
       const result: AnalysisResult = await response.json()
       setAnalysisResult(result)
 
-      // Update workout session
+      // Store recent analyses for trend analysis
+      setRecentAnalyses((prev) => {
+        const updated = [...prev, result].slice(-10) // Keep last 10 analyses
+        return updated
+      })
+
+      // Update workout session with real analysis data
       if (workoutSession) {
         const updatedSession = {
           ...workoutSession,
@@ -123,6 +121,7 @@ export default function HomePage() {
               timestamp: Date.now(),
             },
           ],
+          caloriesBurned: workoutSession.caloriesBurned + Math.round(result.score / 10), // Calories based on form quality
         }
         setWorkoutSession(updatedSession)
       }
@@ -135,8 +134,22 @@ export default function HomePage() {
   }
 
   const handleAgentMessage = (message: string, type: "feedback" | "motivation" | "instruction") => {
-    // Handle different types of agent messages
     console.log(`Agent ${type}:`, message)
+  }
+
+  // Calculate performance trends from recent analyses
+  const getPerformanceTrend = () => {
+    if (recentAnalyses.length < 3) return null
+
+    const recent = recentAnalyses.slice(-3)
+    const older = recentAnalyses.slice(-6, -3)
+
+    if (older.length === 0) return null
+
+    const recentAvg = recent.reduce((sum, a) => sum + a.score, 0) / recent.length
+    const olderAvg = older.reduce((sum, a) => sum + a.score, 0) / older.length
+
+    return recentAvg - olderAvg
   }
 
   return (
@@ -144,16 +157,16 @@ export default function HomePage() {
       <div className="max-w-7xl mx-auto">
         <header className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">AI Sports Coach</h1>
-          <p className="text-lg text-gray-600">Conversational performance insights powered by ElevenLabs</p>
+          <p className="text-lg text-gray-600">Real-time form analysis with intelligent coaching</p>
           <div className="flex justify-center gap-2 mt-4">
             <Badge variant="outline" className="bg-blue-50">
-              Real-time Analysis
+              Live Camera Analysis
             </Badge>
             <Badge variant="outline" className="bg-green-50">
-              Voice Coaching
+              AI Voice Coaching
             </Badge>
             <Badge variant="outline" className="bg-purple-50">
-              Personalized Training
+              Real-time Feedback
             </Badge>
           </div>
         </header>
@@ -242,9 +255,16 @@ export default function HomePage() {
                   </div>
 
                   {isRecording && (
-                    <div className="flex items-center justify-center gap-2 text-sm text-green-600">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                      Workout in progress
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-center gap-2 text-sm text-green-600">
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                        Workout in progress
+                      </div>
+                      {recentAnalyses.length > 0 && (
+                        <div className="text-xs text-gray-600 text-center">
+                          {recentAnalyses.length} analyses completed
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -262,6 +282,17 @@ export default function HomePage() {
                           </div>
                         ) : null
                       })()}
+                    </div>
+                  )}
+
+                  {/* Performance Trend Indicator */}
+                  {getPerformanceTrend() !== null && (
+                    <div className="pt-4 border-t">
+                      <h4 className="font-medium mb-2">Performance Trend</h4>
+                      <div className={`text-sm ${getPerformanceTrend()! > 0 ? "text-green-600" : "text-red-600"}`}>
+                        {getPerformanceTrend()! > 0 ? "↗️ Improving" : "↘️ Declining"}(
+                        {Math.abs(getPerformanceTrend()!).toFixed(1)} points)
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -298,6 +329,9 @@ export default function HomePage() {
                           Form Score: {analysisResult.score}/100
                         </Badge>
                         <Badge variant="outline">{analysisResult.exercise}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {new Date(analysisResult.timestamp).toLocaleTimeString()}
+                        </Badge>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -317,10 +351,46 @@ export default function HomePage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Recent Performance Summary */}
+                      {recentAnalyses.length > 1 && (
+                        <div className="pt-4 border-t">
+                          <h4 className="font-medium mb-2">Session Summary:</h4>
+                          <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <span className="text-gray-600">Average Score:</span>
+                              <div className="font-bold">
+                                {Math.round(
+                                  recentAnalyses.reduce((sum, a) => sum + a.score, 0) / recentAnalyses.length,
+                                )}
+                                %
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Best Score:</span>
+                              <div className="font-bold text-green-600">
+                                {Math.max(...recentAnalyses.map((a) => a.score))}%
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Analyses:</span>
+                              <div className="font-bold">{recentAnalyses.length}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center text-gray-500 py-8">
-                      {isRecording ? "Analyzing your form..." : "Start a workout to get AI feedback"}
+                      {isRecording ? (
+                        <div>
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                          <p>Analyzing your form...</p>
+                          <p className="text-sm mt-1">Move and perform the exercise to get feedback</p>
+                        </div>
+                      ) : (
+                        "Start a workout to get AI feedback based on your actual form"
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -330,19 +400,21 @@ export default function HomePage() {
 
           <TabsContent value="coach">
             <ConversationalAgent
-              isActive={isAgentActive && isElevenLabsReady}
+              isActive={isAgentActive}
               currentExercise={selectedExercise}
               analysisResult={analysisResult}
+              recentAnalyses={recentAnalyses}
+              performanceTrend={getPerformanceTrend()}
               onMessage={handleAgentMessage}
             />
           </TabsContent>
 
           <TabsContent value="metrics">
-            <PerformanceMetrics workoutSession={workoutSession} />
+            <PerformanceMetrics workoutSession={workoutSession} recentAnalyses={recentAnalyses} />
           </TabsContent>
 
           <TabsContent value="plan">
-            <TrainingPlan currentPerformance={analysisResult} />
+            <TrainingPlan currentPerformance={analysisResult} recentAnalyses={recentAnalyses} />
           </TabsContent>
         </Tabs>
       </div>

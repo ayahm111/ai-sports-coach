@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 import { useState, useEffect } from "react"
 import { Volume2, VolumeX, Loader2 } from "lucide-react"
